@@ -20,6 +20,12 @@ Please set up a conda environment (see instructions in [SETUP.md](SETUP.md)).
     git clone https://huggingface.co/NHirose/omnivla-original-balance    
     git clone https://huggingface.co/NHirose/omnivla-finetuned-cast
     ```
+    > **Note:** `git clone` from HuggingFace uses Git LFS for large files. If the cloned `.safetensors` files are only ~135 bytes (LFS pointer stubs rather than real weights), loading the model will fail with `SafetensorError: header too large`. To download the actual weights, use `huggingface_hub` instead:
+    > ```python
+    > from huggingface_hub import snapshot_download
+    > snapshot_download(repo_id='NHirose/omnivla-original', local_dir='./omnivla-original')
+    > ```
+    > Repeat for each checkpoint you need (`omnivla-original-balance`, `omnivla-finetuned-cast`). Each checkpoint is ~14 GB, so ensure you have sufficient disk space.
 2. Run OmniVLA using a sample current image, goal images, GPS pose, and language prompt. You can view the generated trajectory in the output figure 1_ex.jpg.
     ```
     python inference/run_omnivla.py

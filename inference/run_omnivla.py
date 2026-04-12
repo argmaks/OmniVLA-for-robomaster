@@ -116,7 +116,7 @@ class Inference:
             if time.time() - start_time > loop_time:
                 self.tick()
                 start_time = time.time()
-                break
+                # break
 
     def tick(self):
         self.linear, self.angular = self.run_omnivla()
@@ -153,6 +153,7 @@ class Inference:
         ])
 
         # Load current image
+        t_image_to_action = time.perf_counter()
         current_image_path = "./inference/current_img.jpg"
         current_image_PIL = Image.open(current_image_path).convert("RGB")
 
@@ -168,6 +169,7 @@ class Inference:
         )
 
         # Run forward pass
+        t_fwd = time.perf_counter()
         actions, modality_id = self.run_forward_pass(
             vla=vla.eval(),
             action_head=action_head.eval(),
@@ -185,6 +187,7 @@ class Inference:
             mode="train",
             idrun=self.count_id,
         )
+        fwd_ms = (time.perf_counter() - t_fwd) * 1000
         self.count_id += 1
 
         waypoints = actions.float().cpu().numpy()
@@ -240,6 +243,12 @@ class Inference:
             linear_vel_value_limit, angular_vel_value_limit, metric_waypoint_spacing, modality_id.cpu().numpy()
         )
 
+        total_ms = (time.perf_counter() - t_image_to_action) * 1000
+        print(
+            f"[timer] image-to-action: {total_ms:.1f} ms ({1000/total_ms:.1f} Hz)  "
+            f"| forward pass: {fwd_ms:.1f} ms  "
+            f"| pre-processing: {total_ms - fwd_ms:.1f} ms"
+        )
         print("linear angular", linear_vel_value_limit, angular_vel_value_limit)
         return linear_vel_value_limit, angular_vel_value_limit
 
