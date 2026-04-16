@@ -149,7 +149,7 @@ setup = """
 pip install git+https://github.com/moojink/transformers-openvla-oft.git &&
 pip install git+https://github.com/moojink/dlimp_openvla &&
 pip install -e . &&
-pip install 'flash-attn==2.5.5' --no-build-isolation
+# pip install 'flash-attn==2.5.5' --no-build-isolation
 """
 # Start the inference server on port 8777
 start = "python -m inference.server"

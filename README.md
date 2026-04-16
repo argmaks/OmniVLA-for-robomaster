@@ -11,7 +11,27 @@
 IEEE International Conference on Robotics and Automation (ICRA) 2026
 
 ### Installation
-Please set up a conda environment (see instructions in [SETUP.md](SETUP.md)).
+Two equally supported installation paths are available — see [SETUP.md](SETUP.md) for full details.
+
+**Option A — Pixi (recommended)**
+
+```bash
+# Server side (GPU cluster, CUDA 12.1+)
+pixi install -e server && pixi run -e server setup
+
+# Client side — pick the environment matching your ROS version:
+#   client | client-humble | client-jazzy | client-kilted | client-noetic
+pixi install -e client-humble
+```
+
+**Option B — Conda (manual)**
+
+```bash
+conda create -n omnivla python=3.11 -y && conda activate omnivla
+pip install -e .
+```
+
+See [SETUP.md](SETUP.md) for the full conda setup (PyTorch, Flash Attention, etc.).
 
 ### Inference
 1. Download our checkpoints and place them in our directory. "omnivla-original" is the trained checkpoints of the OmniVLA for paper submission. "omnivla-original-balance" contains the trained checkpoints of OmniVLA that account for the data balance in the LeLaN dataset. And "omnivla-finetuned-cast" is finetuned checkpoints with the [CAST](https://huggingface.co/datasets/catglossop/CAST-dataset) dataset.
