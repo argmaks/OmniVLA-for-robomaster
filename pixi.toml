@@ -1,0 +1,183 @@
+[workspace]
+name = "omnivla-robomaster"
+description = "OmniVLA inference server (GPU cluster) and ROS 2 robot client"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "linux-aarch64"]
+
+# ── Build tools — shared by all ROS-based environments ──────────────────────
+
+[feature.build.dependencies]
+compilers = "*"
+cmake = "*"
+pkg-config = "*"
+make = "*"
+ninja = "*"
+rosdep = "*"
+colcon-common-extensions = "*"
+
+[feature.build.target.linux.dependencies]
+libgl-devel = "*"
+
+[feature.build.target.unix.tasks]
+build = "colcon build --symlink-install --cmake-args -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DPython_FIND_VIRTUALENV=ONLY -DPython3_FIND_VIRTUALENV=ONLY"
+
+# ── ROS 2 distributions ──────────────────────────────────────────────────────
+
+### ROS 2 Humble (Ubuntu 22.04) ###
+[feature.humble]
+channels = ["https://prefix.dev/robostack-humble"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
+
+[feature.humble.dependencies]
+ros-humble-desktop = "*"
+
+[feature.humble.target.unix.activation]
+scripts = ["install/setup.bash"]
+
+### ROS 2 Jazzy (Ubuntu 24.04) ###
+[feature.jazzy]
+channels = ["https://prefix.dev/robostack-jazzy"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
+
+[feature.jazzy.dependencies]
+ros-jazzy-desktop = "*"
+
+[feature.jazzy.target.unix.activation]
+scripts = ["install/setup.bash"]
+
+### ROS 2 Kilted ###
+[feature.kilted]
+channels = ["https://prefix.dev/robostack-kilted"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
+
+[feature.kilted.dependencies]
+ros-kilted-desktop = "*"
+
+[feature.kilted.target.unix.activation]
+scripts = ["install/setup.bash"]
+
+### ROS 1 Noetic ###
+[feature.noetic]
+channels = ["https://prefix.dev/robostack-noetic"]
+platforms = ["linux-64"]
+
+[feature.noetic.dependencies]
+ros-noetic-desktop = "*"
+catkin_tools = "*"
+
+[feature.noetic.target.unix.activation]
+scripts = ["install/setup.bash"]
+
+# ── Server: full ML inference stack — GPU cluster, no ROS ───────────────────
+# Requires an NVIDIA GPU with CUDA 12.1 drivers.
+# After `pixi install -e server` run `pixi run -e server install-flash-attn`.
+
+[feature.server]
+channels = ["pytorch", "nvidia", "conda-forge"]
+# osx-arm64 is listed so pixi has a host Python for PyPI build-dispatch when
+# generating the lock file on a Mac. The actual server only runs on linux-64.
+platforms = ["linux-64", "osx-arm64"]
+
+[feature.server.dependencies]
+python = "3.11.*"
+pip = "*"
+# tensorflow==2.15.0 requires numpy<2.0.0; pin here so conda doesn't pull 2.x
+numpy = ">=1.23.5,<2.0.0"
+# Needed to compile flash-attn from source
+packaging = "*"
+ninja = "*"
+
+[feature.server.target.linux-64.dependencies]
+# PyTorch with bundled CUDA 12.1 — linux-64 / GPU cluster only
+pytorch = {version = "==2.2.0", channel = "pytorch"}
+torchvision = {version = "==0.17.0", channel = "pytorch"}
+torchaudio = {version = "==2.2.0", channel = "pytorch"}
+pytorch-cuda = {version = "==12.1", channel = "pytorch"}
+
+[feature.server.pypi-dependencies]
+# Core VLA / training
+accelerate = ">=0.25.0"
+draccus = "==0.8.0"
+einops = "*"
+huggingface-hub = "==0.29.1"
+peft = "==0.11.1"
+sentencepiece = "==0.1.99"
+timm = "==0.9.10"
+tokenizers = "==0.19.1"
+diffusers = "==0.11.1"
+# Note: transformers (git fork), dlimp (git), and the editable omnivla install
+# require build-backend dispatch and cannot be locked cross-platform.
+# Run `pixi run -e server setup` after `pixi install -e server`.
+
+# TensorFlow stack (dataloaders / LeLaN evaluation)
+tensorflow = "==2.15.0"
+tensorflow-datasets = "==4.9.3"
+tensorflow-graphics = "==2021.12.3"
+
+# Data / IO
+datasets = "*"
+lmdb = "*"
+zarr = "*"
+imageio = "*"
+av = "*"
+
+# Vision extras
+efficientnet-pytorch = "*"
+openai-clip = "*"
+Pillow = "*"
+
+# Inference server
+fastapi = "*"
+uvicorn = "*"
+utm = "*"
+
+# Utilities
+json-numpy = "*"
+jsonlines = "*"
+matplotlib = "*"
+protobuf = "*"
+rich = "*"
+wandb = "*"
+numpy = "*"
+
+[feature.server.tasks]
+# Run once on the GPU cluster after `pixi install -e server`:
+#   1. Install git-sourced forks and the editable OmniVLA package
+#      (pixi cannot lock these cross-platform; they are pip-installed here instead)
+#   2. Compile flash-attn from source against the installed PyTorch
+setup = """
+pip install git+https://github.com/moojink/transformers-openvla-oft.git &&
+pip install git+https://github.com/moojink/dlimp_openvla &&
+pip install -e . &&
+pip install 'flash-attn==2.5.5' --no-build-isolation
+"""
+# Start the inference server on port 8777
+start = "python -m inference.server"
+
+# ── Client: ROS 2 robot side — HTTP calls only, no GPU required ─────────────
+# [feature.client] is the base: requests + Pillow, works on all platforms.
+# Pair it with a ROS distro feature for an actual robot deployment (Linux only).
+# On osx-arm64 (dev / smoke-testing) use the plain `client` environment.
+
+[feature.client.dependencies]
+python = "*"
+
+[feature.client.pypi-dependencies]
+requests = "*"
+Pillow = "*"
+
+# ── Environments ────────────────────────────────────────────────────────────
+
+[environments]
+# GPU cluster: loads the 14 GB model checkpoint and serves POST /act
+server         = { features = ["server"],                         no-default-feature = true }
+# Robot client, no ROS — works on osx-arm64 for local dev/smoke-testing
+client         = { features = ["client"],                         no-default-feature = true }
+# ROS 2 Humble robot (Ubuntu 22.04, linux-64 / linux-aarch64)
+client-humble  = { features = ["client", "humble", "build"],      no-default-feature = true }
+# ROS 2 Jazzy robot (Ubuntu 24.04)
+client-jazzy   = { features = ["client", "jazzy",  "build"],      no-default-feature = true }
+# ROS 2 Kilted robot
+client-kilted  = { features = ["client", "kilted", "build"],      no-default-feature = true }
+# ROS 1 Noetic (legacy robots)
+client-noetic  = { features = ["client", "noetic", "build"],      no-default-feature = true }

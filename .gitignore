@@ -25,3 +25,6 @@ omnivla-edge/
 **/__pycache__/
 # Ignore all wandb directories everywhere
 **/wandb/
+# pixi environments
+.pixi/*
+!.pixi/config.toml
