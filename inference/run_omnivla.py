@@ -82,7 +82,10 @@ def init_module(
 # Inference Class
 # ===============================================================
 class Inference:
-    def __init__(self, save_dir, lan_inst_prompt, goal_utm, goal_compass, goal_image_PIL, action_tokenizer, processor):
+    def __init__(self, save_dir, lan_inst_prompt, goal_utm, goal_compass, goal_image_PIL,
+                 action_tokenizer, processor,
+                 vla, action_head, pose_projector, device_id, num_patches,
+                 satellite, pose_goal, image_goal, lan_prompt):
         self.tick_rate = 3
         self.lan_inst_prompt = lan_inst_prompt
         self.goal_utm = goal_utm
@@ -93,6 +96,15 @@ class Inference:
         self.count_id = 0
         self.linear, self.angular = 0.0, 0.0
         self.datastore_path_image = save_dir
+        self.vla = vla
+        self.action_head = action_head
+        self.pose_projector = pose_projector
+        self.device_id = device_id
+        self.num_patches = num_patches
+        self.satellite = satellite
+        self.pose_goal = pose_goal
+        self.image_goal = image_goal
+        self.lan_prompt = lan_prompt
     # ----------------------------
     # Static Utility Methods
     # ----------------------------
@@ -119,19 +131,19 @@ class Inference:
                 # break
 
     def tick(self):
-        self.linear, self.angular = self.run_omnivla()
+        current_lat = 37.87371258374039
+        current_lon = -122.26729417226024
+        current_compass = 270.0
+        current_image_PIL = Image.open("./inference/current_img.jpg").convert("RGB")
+        self.linear, self.angular = self.run_omnivla(current_image_PIL, current_lat, current_lon, current_compass)
 
     # ----------------------------
     # OmniVLA Inference
     # ----------------------------
-    def run_omnivla(self):
+    def run_omnivla(self, current_image_PIL, current_lat, current_lon, current_compass):
         thres_dist = 30.0
         metric_waypoint_spacing = 0.1
 
-        # Load current GPS & heading
-        current_lat = 37.87371258374039
-        current_lon = -122.26729417226024
-        current_compass = 270.0
         cur_utm = utm.from_latlon(current_lat, current_lon)
         cur_compass = -float(current_compass) / 180.0 * math.pi  # inverted compass
 
@@ -152,13 +164,9 @@ class Inference:
             np.sin(self.goal_compass - cur_compass)
         ])
 
-        # Load current image
-        t_image_to_action = time.perf_counter()
-        current_image_path = "./inference/current_img.jpg"
-        current_image_PIL = Image.open(current_image_path).convert("RGB")
-
         # Language instruction
-        lan_inst = self.lan_inst_prompt if lan_prompt else "xxxx"
+        t_image_to_action = time.perf_counter()
+        lan_inst = self.lan_inst_prompt if self.lan_prompt else "xxxx"
 
         # Prepare batch
         batch = self.data_transformer_omnivla(
@@ -171,17 +179,17 @@ class Inference:
         # Run forward pass
         t_fwd = time.perf_counter()
         actions, modality_id = self.run_forward_pass(
-            vla=vla.eval(),
-            action_head=action_head.eval(),
+            vla=self.vla.eval(),
+            action_head=self.action_head.eval(),
             noisy_action_projector=None,
-            pose_projector=pose_projector.eval(),
+            pose_projector=self.pose_projector.eval(),
             batch=batch,
             action_tokenizer=self.action_tokenizer,
-            device_id=device_id,
+            device_id=self.device_id,
             use_l1_regression=True,
             use_diffusion=False,
             use_film=False,
-            num_patches=NUM_PATCHES,
+            num_patches=self.num_patches,
             compute_diffusion_l1=False,
             num_diffusion_steps_train=None,
             mode="train",
@@ -426,6 +434,7 @@ class Inference:
         noise, noisy_actions, diffusion_timestep_embeddings = None, None, None
 
         # Determine modality
+        satellite, lan_prompt, pose_goal, image_goal = self.satellite, self.lan_prompt, self.pose_goal, self.image_goal
         if satellite and not lan_prompt and not pose_goal and not image_goal:
             modality_id = torch.as_tensor([0], dtype=torch.float32)
         elif satellite and not lan_prompt and pose_goal and not image_goal:
@@ -454,7 +463,7 @@ class Inference:
                 labels=batch["labels"].to(device_id),
                 output_hidden_states=True,
                 proprio=batch["goal_pose"].to(torch.bfloat16).to(device_id),
-                proprio_projector=pose_projector,
+                proprio_projector=pose_projector,  # passed as method arg
                 noisy_actions=noisy_actions if use_diffusion else None,
                 noisy_action_projector=noisy_action_projector if use_diffusion else None,
                 diffusion_timestep_embeddings=diffusion_timestep_embeddings if use_diffusion else None,
@@ -593,5 +602,14 @@ if __name__ == "__main__":
         goal_image_PIL=goal_image_PIL,
         action_tokenizer=action_tokenizer,
         processor=processor,
+        vla=vla,
+        action_head=action_head,
+        pose_projector=pose_projector,
+        device_id=device_id,
+        num_patches=NUM_PATCHES,
+        satellite=satellite,
+        pose_goal=pose_goal,
+        image_goal=image_goal,
+        lan_prompt=lan_prompt,
     )
     inference.run()
