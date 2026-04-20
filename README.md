@@ -132,10 +132,12 @@ OmniVLA/
 │   ├── run_omnivla_edge.py     # Lightweight edge-model inference script
 │   ├── model_omnivla_edge.py   # EfficientNet-based OmniVLA-edge architecture
 │   ├── utils_policy.py         # Image/model utilities for edge model
-│   ├── server.py               # FastAPI remote inference server (NEW)
-│   ├── client.py               # Laptop-side client for server (NEW)
+│   ├── server.py               # FastAPI remote inference server
+│   ├── client.py               # Laptop-side client for server
 │   ├── current_img.jpg         # Sample current image for testing
 │   └── goal_img.jpg            # Sample goal image for testing
+├── control/
+│   └── control.py              # ROS 2 robot controller (RoboMaster + OmniVLA server)
 ├── prismatic/                  # Model backbone library (from OpenVLA-OFT)
 │   ├── extern/hf/              # HuggingFace-compatible model/processor/config wrappers
 │   ├── models/
@@ -332,6 +334,53 @@ When `goal_image` is omitted the server uses a black dummy image of the same siz
 - **Visualization side-effect**: `run_omnivla()` always calls `save_robot_behavior()`, writing a plot to `inference/{count_id}_ex.jpg`.  In server mode `count_id` resets to 0 for each request, so `inference/0_ex.jpg` is overwritten every call.
 - **Waypoints coordinate frame**: Robot body frame, X forward, Y left, in normalised 0.1 m units.  The velocity controller picks step index 4 as its look-ahead target.
 - **`modality_id=7` (language only)**: The goal image tensor (black dummy) and goal pose tensor (dummy GPS) are still passed to the model but the modality conditioning causes them to be ignored.  If you see unexpected behaviour in language-only mode, check that `lan_prompt=True` and the other three flags are `False`.
+
+---
+
+## ROS 2 Robot Controller (`control/control.py`)
+
+`control/control.py` closes the loop between the OmniVLA inference server and a physical RoboMaster robot running ROS 2 Humble.  It subscribes to the robot's compressed camera stream, sends each frame to the server, and publishes the returned velocity command to `cmd_vel` at 10 Hz (so the firmware watchdog is always satisfied regardless of inference latency).
+
+### Prerequisites
+
+- SSH tunnel open to the cluster (see [Opening the SSH tunnel](#opening-the-ssh-tunnel-on-the-laptop) above).
+- `pixi install -e client-humble` completed.
+- ROS 2 environment active and the robot reachable (`ros2 topic list` shows `/robomaster_10/…`).
+
+### Running the controller
+
+```bash
+# Default instruction ("move forward")
+pixi run -e client-humble python control/control.py
+
+# Custom instruction
+pixi run -e client-humble python control/control.py "move toward the blue bin"
+
+# Custom server URL
+pixi run -e client-humble python control/control.py --server http://localhost:8777 "navigate to the door"
+```
+
+Press **Ctrl-C** to stop — the controller publishes a zero-velocity command before exiting.
+
+### Topics
+
+| Direction | Topic | Type |
+|---|---|---|
+| Subscribe | `/robomaster_10/camera_0/image_raw/compressed` | `sensor_msgs/CompressedImage` |
+| Publish   | `/robomaster_10/cmd_vel` | `geometry_msgs/Twist` |
+
+### CLI reference
+
+```
+usage: control.py [-h] [--server URL] [--camera-topic TOPIC] [instruction]
+
+positional arguments:
+  instruction           Language navigation goal (default: "move forward")
+
+options:
+  --server URL          OmniVLA server URL (default: http://localhost:8777)
+  --camera-topic TOPIC  ROS 2 compressed image topic
+```
 
 ### Acknowledgement
 We implement our ideas and design choices on top of the pretrained checkpoints. Our work builds upon the [OpenVLA-OFT](https://openvla-oft.github.io/) codebase, with additional code added to create OmniVLA. As such, our implementation leverages many components of the OpenVLA-OFT codebase. We sincerely appreciate the effort and contributions of the OpenVLA-OFT team!
