@@ -140,6 +140,8 @@ rich = "*"
 wandb = "*"
 numpy = "*"
 
+
+
 [feature.server.tasks]
 # Run once on the GPU cluster after `pixi install -e server`:
 #   1. Install git-sourced forks and the editable OmniVLA package
@@ -165,6 +167,9 @@ python = "*"
 [feature.client.pypi-dependencies]
 requests = "*"
 Pillow = "*"
+
+# Teleop
+pynput = "*"
 
 # ── Environments ────────────────────────────────────────────────────────────
 
