@@ -16,13 +16,33 @@ Two equally supported installation paths are available — see [SETUP.md](SETUP.
 **Option A — Pixi (recommended)**
 
 ```bash
-# Server side (GPU cluster, CUDA 12.1+)
-pixi install -e server && pixi run -e server setup
+# Install pixi (if not already installed)
+curl -fsSL https://pixi.sh/install.sh | bash
+```
 
-# Client side — pick the environment matching your ROS version:
-#   client | client-humble | client-jazzy | client-kilted | client-noetic
+*Server side* (GPU cluster, CUDA 12.1+):
+```bash
+pixi install -e server && pixi run -e server setup
+# Start the inference server on port 8777
+pixi run -e server start
+```
+
+*Client side* — pick the environment matching your ROS version:
+
+| Environment | Use case |
+|---|---|
+| `client` | No ROS — macOS or bare Linux, local dev |
+| `client-humble` | ROS 2 Humble (Ubuntu 22.04) |
+| `client-jazzy` | ROS 2 Jazzy (Ubuntu 24.04) |
+| `client-kilted` | ROS 2 Kilted |
+| `client-noetic` | ROS 1 Noetic (legacy robots) |
+
+```bash
+# Example: ROS 2 Humble robot
 pixi install -e client-humble
 ```
+
+For environments with a ROS activation script (`install/setup.bash`), pixi sources it automatically on shell entry — no manual `source` needed.
 
 **Option B — Conda (manual)**
 
@@ -134,10 +154,16 @@ OmniVLA/
 │   ├── utils_policy.py         # Image/model utilities for edge model
 │   ├── server.py               # FastAPI remote inference server
 │   ├── client.py               # Laptop-side client for server
+│   ├── preprocess.py           # Center-crop helper (center_crop_square)
 │   ├── current_img.jpg         # Sample current image for testing
 │   └── goal_img.jpg            # Sample goal image for testing
 ├── control/
 │   └── control.py              # ROS 2 robot controller (RoboMaster + OmniVLA server)
+├── debug/
+│   ├── grab_frame.py           # Grab one camera frame and save to debug/current.jpg
+│   ├── teleop.py               # Arrow-key teleoperation (pynput, publishes cmd_vel)
+│   ├── current.jpg             # Last frame captured by grab_frame.py
+│   └── goal.jpg                # Goal image for image_goal mode
 ├── prismatic/                  # Model backbone library (from OpenVLA-OFT)
 │   ├── extern/hf/              # HuggingFace-compatible model/processor/config wrappers
 │   ├── models/
@@ -307,6 +333,21 @@ print(result["linear_vel"], result["angular_vel"])
 
 The smoke-test in `inference/client.py` (`python inference/client.py`) runs this exact call against `inference/current_img.jpg`.
 
+### Preparing images (`inference/preprocess.py`)
+
+Images sent to the server should be square-cropped.  `inference/preprocess.py` provides a `center_crop_square` helper that crops any image to a square (taking the shorter side) and optionally resizes it:
+
+```python
+from inference.preprocess import center_crop_square
+img = center_crop_square(pil_image)            # crop to square, original resolution
+img = center_crop_square(pil_image, size=224)  # crop then resize to 224×224
+```
+
+Can also be run as a CLI to prepare a goal image on disk:
+```bash
+python inference/preprocess.py input.jpg output.jpg --size 224
+```
+
 ### API reference
 
 **`POST /act`**
@@ -334,6 +375,44 @@ When `goal_image` is omitted the server uses a black dummy image of the same siz
 - **Visualization side-effect**: `run_omnivla()` always calls `save_robot_behavior()`, writing a plot to `inference/{count_id}_ex.jpg`.  In server mode `count_id` resets to 0 for each request, so `inference/0_ex.jpg` is overwritten every call.
 - **Waypoints coordinate frame**: Robot body frame, X forward, Y left, in normalised 0.1 m units.  The velocity controller picks step index 4 as its look-ahead target.
 - **`modality_id=7` (language only)**: The goal image tensor (black dummy) and goal pose tensor (dummy GPS) are still passed to the model but the modality conditioning causes them to be ignored.  If you see unexpected behaviour in language-only mode, check that `lan_prompt=True` and the other three flags are `False`.
+
+---
+
+## Debug Utilities
+
+### Grab a single camera frame (`debug/grab_frame.py`)
+
+Subscribes to the robot's camera topic, saves the first frame to `debug/current.jpg`, then exits.  Useful for capturing a goal image before a run.
+
+```bash
+pixi run -e client-humble python debug/grab_frame.py
+```
+
+### Arrow-key teleoperation (`debug/teleop.py`)
+
+Lets you drive the robot manually using the arrow keys.  Uses `pynput` for real key-down / key-up events — the robot moves exactly while a key is held and stops the moment it is released.  Multiple keys work simultaneously (e.g. ↑ + ← moves forward while turning left).
+
+Install `pynput` if it is not already in the environment:
+```bash
+pixi run -e client-humble pip install pynput
+```
+
+Run:
+```bash
+pixi run -e client-humble python debug/teleop.py
+```
+
+| Key | Action |
+|---|---|
+| ↑ | Forward (`LINEAR_VEL` m/s) |
+| ↓ | Backward |
+| ← | Turn left (`ANGULAR_VEL` rad/s) |
+| → | Turn right |
+| Esc / q | Quit (publishes zero velocity) |
+
+> **macOS note:** the first run may prompt for Accessibility permissions in System Settings → Privacy & Security → Accessibility.  These are required for `pynput` to read global key events.
+
+Speed constants `LINEAR_VEL` (default `0.5 m/s`) and `ANGULAR_VEL` (default `0.75 rad/s`) are at the top of the file.
 
 ---
 
