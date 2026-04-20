@@ -160,7 +160,7 @@ class OmniVLAController(Node):
 
                 cmd = Twist()
                 cmd.linear.x  = linear_vel
-                cmd.angular.z = angular_vel
+                cmd.angular.z = -angular_vel
 
                 self.get_logger().info(
                     f"vx={linear_vel:.3f} m/s  wz={angular_vel:.3f} rad/s"
