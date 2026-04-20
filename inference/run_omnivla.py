@@ -105,6 +105,8 @@ class Inference:
         self.pose_goal = pose_goal
         self.image_goal = image_goal
         self.lan_prompt = lan_prompt
+        self.debug_dir = os.path.join(save_dir, "debug")
+        os.makedirs(self.debug_dir, exist_ok=True)
     # ----------------------------
     # Static Utility Methods
     # ----------------------------
@@ -140,6 +142,11 @@ class Inference:
     # ----------------------------
     # OmniVLA Inference
     # ----------------------------
+    def _save_debug_images(self, current_image_PIL, vla_input_image_PIL):
+        current_image_PIL.save(os.path.join(self.debug_dir, "api_current.jpg"))
+        self.goal_image_PIL.save(os.path.join(self.debug_dir, "api_goal.jpg"))
+        vla_input_image_PIL.save(os.path.join(self.debug_dir, "vla_current.jpg"))
+
     def run_omnivla(self, current_image_PIL, current_lat, current_lon, current_compass):
         thres_dist = 30.0
         metric_waypoint_spacing = 0.1
@@ -167,6 +174,20 @@ class Inference:
         # Language instruction
         t_image_to_action = time.perf_counter()
         lan_inst = self.lan_inst_prompt if self.lan_prompt else "xxxx"
+
+        # --- Debug: log all inputs ---
+        vla_input_size = (224, 224)
+        vla_input_image_PIL = current_image_PIL.resize(vla_input_size)
+        print(
+            f"[debug] language instruction : {lan_inst!r}\n"
+            f"[debug] current_image (API)  : {current_image_PIL.size} WxH, mode={current_image_PIL.mode}\n"
+            f"[debug] goal_image (API)     : {self.goal_image_PIL.size} WxH, mode={self.goal_image_PIL.mode}\n"
+            f"[debug] current_image→VLA    : {vla_input_size} WxH (resized)\n"
+            f"[debug] goal_pose_loc_norm   : {goal_pose_loc_norm}\n"
+            f"[debug] modality flags       : lan_prompt={self.lan_prompt}, pose_goal={self.pose_goal}, "
+            f"image_goal={self.image_goal}, satellite={self.satellite}"
+        )
+        self._save_debug_images(current_image_PIL, vla_input_image_PIL)
 
         # Prepare batch
         batch = self.data_transformer_omnivla(
@@ -419,6 +440,13 @@ class Inference:
             model_max_length=processor.tokenizer.model_max_length,
             pad_token_id=processor.tokenizer.pad_token_id,
             padding_side="right"
+        )
+        print(
+            f"[debug] pixel_values→VLA     : shape={tuple(batch['pixel_values'].shape)} "
+            f"(B, 2*C, H, W)\n"
+            f"[debug] goal_pose→VLA        : shape={tuple(batch['goal_pose'].shape)}, "
+            f"values={batch['goal_pose'].numpy()}\n"
+            f"[debug] input_ids            : shape={tuple(batch['input_ids'].shape)}"
         )
         return batch
 

@@ -18,8 +18,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import base64
 import io
+import logging
 import math
 from typing import Optional
+
+logger = logging.getLogger("omnivla.server")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
 import numpy as np
 import utm
@@ -110,6 +114,15 @@ def act(req: ActRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"current_image decode error: {e}")
 
+    logger.info(
+        f"[API /act] current_image decoded: {current_image_pil.size} WxH, mode={current_image_pil.mode}"
+    )
+    logger.info(f"[API /act] language instruction : {req.lan_inst!r}")
+    logger.info(
+        f"[API /act] modality flags: lan_prompt={req.lan_prompt}, pose_goal={req.pose_goal}, "
+        f"image_goal={req.image_goal}, satellite={req.satellite}"
+    )
+
     # Goal image: use a black dummy when running in language-only mode
     if req.goal_image is not None:
         try:
@@ -118,6 +131,11 @@ def act(req: ActRequest):
             raise HTTPException(status_code=400, detail=f"goal_image decode error: {e}")
     else:
         goal_image_pil = Image.new("RGB", current_image_pil.size, (0, 0, 0))
+
+    logger.info(
+        f"[API /act] goal_image: {goal_image_pil.size} WxH, mode={goal_image_pil.mode} "
+        f"(provided={req.goal_image is not None})"
+    )
 
     # GPS: use dummy values when not provided (gated out by modality_id)
     current_lat = req.current_lat if req.current_lat is not None else _DUMMY_LAT
