@@ -30,11 +30,13 @@ from PIL import Image as PILImage
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-SERVER_URL   = os.environ.get("OMNIVLA_SERVER_URL", "http://localhost:8777")
-ROBOT_NS     = "robomaster_10"
-CAMERA_TOPIC = f"/{ROBOT_NS}/camera_0/image_raw/compressed"
+SERVER_URL        = os.environ.get("OMNIVLA_SERVER_URL", "http://localhost:8777")
+ROBOT_NS          = "robomaster_10"
+CAMERA_TOPIC      = f"/{ROBOT_NS}/camera_0/image_raw/compressed"
+DEFAULT_GOAL_IMG  = "inference/goal_img.jpg"
 
 DEFAULT_INSTRUCTION = "move forward"
+DEBUG_DIR = "debug"
 
 # How often to publish the current command to satisfy the firmware watchdog
 PUBLISH_HZ = 10
@@ -49,17 +51,39 @@ def _compressed_to_pil(msg: CompressedImage) -> PILImage.Image:
     return PILImage.open(io.BytesIO(bytes(msg.data))).convert("RGB")
 
 
-def query_server(server_url: str, image: PILImage.Image, instruction: str, timeout: float = 30.0) -> dict:
+def _pil_to_b64(img: PILImage.Image) -> str:
     buf = io.BytesIO()
-    image.save(buf, format="JPEG")
+    img.convert("RGB").save(buf, format="JPEG")
+    return _jpeg_to_b64(buf.getvalue())
+
+
+def _save_debug(current: PILImage.Image, goal: PILImage.Image | None) -> None:
+    os.makedirs(DEBUG_DIR, exist_ok=True)
+    current.save(os.path.join(DEBUG_DIR, "current.jpg"))
+    if goal is not None:
+        goal.save(os.path.join(DEBUG_DIR, "goal.jpg"))
+
+
+def query_server(
+    server_url: str,
+    image: PILImage.Image,
+    instruction: str,
+    *,
+    goal_image: PILImage.Image | None = None,
+    timeout: float = 30.0,
+) -> dict:
+    _save_debug(image, goal_image)
+    use_image_goal = goal_image is not None
     payload = dict(
-        current_image=_jpeg_to_b64(buf.getvalue()),
+        current_image=_pil_to_b64(image),
         lan_inst=instruction,
-        lan_prompt=True,
+        lan_prompt=not use_image_goal,
         pose_goal=False,
-        image_goal=False,
+        image_goal=use_image_goal,
         satellite=False,
     )
+    if use_image_goal:
+        payload["goal_image"] = _pil_to_b64(goal_image)
     resp = requests.post(f"{server_url}/act", json=payload, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
@@ -68,11 +92,13 @@ def query_server(server_url: str, image: PILImage.Image, instruction: str, timeo
 # ── ROS 2 Node ─────────────────────────────────────────────────────────────────
 
 class OmniVLAController(Node):
-    def __init__(self, instruction: str, server_url: str, camera_topic: str):
+    def __init__(self, instruction: str, server_url: str, camera_topic: str,
+                 goal_image: PILImage.Image | None = None):
         super().__init__("omnivla_controller")
 
         self._instruction = instruction
         self._server_url  = server_url
+        self._goal_image  = goal_image
         self._running     = True
 
         self._latest_image: PILImage.Image | None = None
@@ -92,11 +118,13 @@ class OmniVLAController(Node):
         )
         self._infer_thread.start()
 
+        modality = "image_goal" if goal_image is not None else "language"
         self.get_logger().info("OmniVLA controller ready")
         self.get_logger().info(f"  namespace   : {ROBOT_NS}")
         self.get_logger().info(f"  cmd_vel     : {cmd_vel_topic}")
         self.get_logger().info(f"  camera      : {camera_topic}")
         self.get_logger().info(f"  server      : {server_url}")
+        self.get_logger().info(f"  modality    : {modality}")
         self.get_logger().info(f"  instruction : {instruction}")
 
     def _image_cb(self, msg: CompressedImage):
@@ -125,7 +153,8 @@ class OmniVLAController(Node):
                 continue
 
             try:
-                result = query_server(self._server_url, image, self._instruction)
+                result = query_server(self._server_url, image, self._instruction,
+                                      goal_image=self._goal_image)
                 linear_vel  = float(result["linear_vel"])
                 angular_vel = float(result["angular_vel"])
 
@@ -166,13 +195,34 @@ def main():
         default=CAMERA_TOPIC,
         help=f"ROS 2 compressed image topic (default: {CAMERA_TOPIC})",
     )
+    parser.add_argument(
+        "--image-goal",
+        action="store_true",
+        help="Use image_goal modality instead of language-only",
+    )
+    parser.add_argument(
+        "--goal-image",
+        default=DEFAULT_GOAL_IMG,
+        metavar="PATH",
+        help=f"Path to goal image used with --image-goal (default: {DEFAULT_GOAL_IMG})",
+    )
     args = parser.parse_args()
+
+    goal_image: PILImage.Image | None = None
+    if args.image_goal:
+        try:
+            goal_image = PILImage.open(args.goal_image).convert("RGB")
+            print(f"[info] goal image loaded from {args.goal_image}")
+        except FileNotFoundError:
+            print(f"[error] goal image not found: {args.goal_image}")
+            raise SystemExit(1)
 
     rclpy.init()
     node = OmniVLAController(
         instruction=args.instruction,
         server_url=args.server,
         camera_topic=args.camera_topic,
+        goal_image=goal_image,
     )
 
     def _sigint(sig, frame):
