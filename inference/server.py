@@ -33,6 +33,7 @@ from pydantic import BaseModel
 import uvicorn
 
 from inference.run_omnivla import Inference, InferenceConfig, define_model
+from inference.preprocess import center_crop_square
 
 # ---------------------------------------------------------------
 # Request / Response schemas
@@ -114,6 +115,7 @@ def act(req: ActRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"current_image decode error: {e}")
 
+    current_image_pil = center_crop_square(current_image_pil)
     logger.info(
         f"[API /act] current_image decoded: {current_image_pil.size} WxH, mode={current_image_pil.mode}"
     )
@@ -129,8 +131,10 @@ def act(req: ActRequest):
             goal_image_pil = _decode_image(req.goal_image)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"goal_image decode error: {e}")
+        goal_image_pil = center_crop_square(goal_image_pil)
     else:
-        goal_image_pil = Image.new("RGB", current_image_pil.size, (0, 0, 0))
+        _default_goal = os.path.join(os.path.dirname(__file__), "debug", "debug_goal_img.jpg")
+        goal_image_pil = center_crop_square(Image.open(_default_goal).convert("RGB"))
 
     logger.info(
         f"[API /act] goal_image: {goal_image_pil.size} WxH, mode={goal_image_pil.mode} "
